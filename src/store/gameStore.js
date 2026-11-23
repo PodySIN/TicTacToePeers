@@ -172,7 +172,7 @@ export const useGameStore = create((set, get) => ({
       });
     } catch (e) {
       console.warn('openRoom failed', e);
-      set({ peerError: 'Не удалось создать комнату', status: 'error', mode: 'menu' });
+      set({ peerError: `Не удалось создать комнату: ${e?.message || e}`, status: 'error', mode: 'menu' });
       destroyPeer();
       return;
     }
@@ -240,7 +240,7 @@ export const useGameStore = create((set, get) => ({
       });
     } catch (e) {
       console.warn('openRoom failed', e);
-      failJoin('Не удалось подключиться к комнате.');
+      failJoin(`Не удалось подключиться к комнате: ${e?.message || e}`);
       return;
     }
 

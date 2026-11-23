@@ -3,11 +3,12 @@
  * Сигналинг идёт через публичные Nostr-реле (несколько сразу — если одно лежит, работают другие).
  * Игровые данные идут напрямую между браузерами.
  *
+ * (В этой версии Trystero стратегия Nostr — по умолчанию, импорт из 'trystero'.)
  * Если Nostr-реле недоступны в вашей сети, замените импорт на один из:
  *   'trystero/torrent'  — WebTorrent-трекеры
  *   'trystero/mqtt'     — публичные MQTT-брокеры
  */
-import { joinRoom } from 'trystero/nostr';
+import { joinRoom } from 'trystero';
 
 const APP_ID = 'neon-ultimate-ttt-v1';
 
@@ -33,15 +34,34 @@ const RTC_CONFIG = {
  * Возвращает { send(data, peerId?), leave() }.
  */
 export function openRoom(code, handlers) {
-  const room = joinRoom({ appId: APP_ID, rtcConfig: RTC_CONFIG }, code);
-  const [sendMsg, getMsg] = room.makeAction('msg');
-  getMsg((data, peerId) => handlers.onMessage?.(data, peerId));
-  room.onPeerJoin((peerId) => handlers.onJoin?.(peerId));
-  room.onPeerLeave((peerId) => handlers.onLeave?.(peerId));
-  return {
-    send: (data, peerId) => sendMsg(data, peerId),
-    leave: () => room.leave(),
-  };
+  const room = joinRoom({ appId: APP_ID, rtcConfig: RTC_CONFIG }, code, {
+    onJoinError: (d) => console.warn('trystero join error', d),
+  });
+  const action = room.makeAction('msg');
+
+  let send;
+  if (Array.isArray(action)) {
+    // Старый API (<= 0.21): [send, receive]
+    const [sendMsg, getMsg] = action;
+    getMsg((data, peerId) => handlers.onMessage?.(data, peerId));
+    send = (data, peerId) => sendMsg(data, peerId);
+  } else {
+    // Новый API (>= 0.25): action.send / action.onMessage
+    action.onMessage = (data, meta) => handlers.onMessage?.(data, meta?.peerId);
+    send = (data, peerId) => action.send(data, peerId ? { target: peerId } : undefined);
+  }
+
+  const onJoin = (peerId) => handlers.onJoin?.(peerId);
+  const onLeave = (peerId) => handlers.onLeave?.(peerId);
+  if (typeof room.onPeerJoin === 'function') {
+    room.onPeerJoin(onJoin);
+    room.onPeerLeave(onLeave);
+  } else {
+    room.onPeerJoin = onJoin;
+    room.onPeerLeave = onLeave;
+  }
+
+  return { send, leave: () => room.leave() };
 }
 
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';

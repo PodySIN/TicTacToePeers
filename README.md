@@ -28,7 +28,7 @@
 
 Вместо одного сервера PeerJS используется **Trystero**: сигналинг идёт через несколько публичных Nostr-реле сразу,
 поэтому нет единой точки отказа. Если реле недоступны в вашей сети, в `src/lib/peer.js` замените
-`'trystero/nostr'` на `'trystero/torrent'` или `'trystero/mqtt'`.
+`'trystero'` на `'trystero/torrent'` или `'trystero/mqtt'`.
 
 ## Чего нет
 
