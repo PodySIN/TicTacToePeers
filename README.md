@@ -1,6 +1,6 @@
-# Neon Ultimate Tic-Tac-Toe (GitHub Pages + PeerJS)
+# Neon Ultimate Tic-Tac-Toe (GitHub Pages + FireBase)
 
-Супер-крестики-нолики для статического хостинга. Онлайн — через **PeerJS** (P2P), без своего сервера и БД.
+Супер-крестики-нолики для статического хостинга. Онлайн — через **FireBase**, без своего сервера.
 
 ## Что есть
 
