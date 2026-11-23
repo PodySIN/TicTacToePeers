@@ -5,35 +5,49 @@ import { playTone } from '../lib/audio';
 import { fireworks } from '../lib/celebration';
 import { saveBotGame, clearBotSave } from '../lib/botSave';
 import {
-  createHostPeer,
-  createGuestPeer,
+  openRoom,
   shareUrl,
   clearRoomFromUrl,
   randomRoomCode,
 } from '../lib/peer';
 
-// Живые объекты Peer/DataConnection не храним в zustand state.
-let peerInstance = null;
-let connInstance = null;
+// Живые объекты комнаты не храним в zustand state.
+let roomInstance = null;
+let remotePeerId = null;
+let joinTimer = null;
+const JOIN_TIMEOUT_MS = 25000;
 
 function destroyPeer() {
+  clearTimeout(joinTimer);
+  joinTimer = null;
   try {
-    if (connInstance) connInstance.close();
+    if (roomInstance) roomInstance.leave();
   } catch { /* ignore */ }
-  try {
-    if (peerInstance) peerInstance.destroy();
-  } catch { /* ignore */ }
-  peerInstance = null;
-  connInstance = null;
+  roomInstance = null;
+  remotePeerId = null;
 }
 
 function send(msg) {
-  if (connInstance && connInstance.open) {
+  if (roomInstance && remotePeerId) {
     try {
-      connInstance.send(msg);
+      roomInstance.send(msg, remotePeerId);
     } catch (e) {
-      console.warn('peer send failed', e);
+      console.warn('send failed', e);
     }
+  }
+}
+
+function onOpponentLeft() {
+  remotePeerId = null;
+  const { status, mode, onlineRole } = useGameStore.getState();
+  if (mode === 'online' && (status === 'playing' || status === 'waiting')) {
+    useGameStore.setState({
+      peerError: 'Соперник отключился',
+      opponentConnected: false,
+      status: status === 'playing' || onlineRole === 'guest' ? 'error' : 'waiting',
+    });
+  } else {
+    useGameStore.setState({ opponentConnected: false });
   }
 }
 
@@ -127,52 +141,47 @@ export const useGameStore = create((set, get) => ({
       shareLink: null,
     });
 
-    let created = createHostPeer();
-    let peer = created.peer;
-    peerInstance = peer;
-
-    const finishHostReady = (id) => {
-      const link = shareUrl(id);
-      set({
-        roomCode: id,
-        shareLink: link,
-        mode: 'online',
-        status: 'waiting',
+    const code = randomRoomCode(6);
+    try {
+      roomInstance = openRoom(code, {
+        onJoin: () => {},
+        onLeave: (peerId) => {
+          if (peerId === remotePeerId) onOpponentLeft();
+        },
+        onMessage: (data, peerId) => {
+          if (!data || typeof data !== 'object') return;
+          if (data.type === 'hello') {
+            if (remotePeerId && remotePeerId !== peerId) {
+              try { roomInstance.send({ type: 'full' }, peerId); } catch { /* ignore */ }
+              return;
+            }
+            remotePeerId = peerId;
+            const state = useGameStore.getState();
+            useGameStore.setState({
+              opponentConnected: true,
+              status: state.status === 'waiting' ? 'playing' : state.status,
+              mode: 'online',
+              peerError: null,
+            });
+            send({ type: 'sync', game: useGameStore.getState().game, hostMark: 'X' });
+            return;
+          }
+          if (peerId !== remotePeerId) return;
+          handleRemoteMessage(data);
+        },
       });
-    };
-
-    peer.on('open', (id) => {
-      finishHostReady(id);
-    });
-
-    peer.on('error', (err) => {
-      console.warn('peer host error', err);
-      if (err?.type === 'unavailable-id') {
-        try { peer.destroy(); } catch { /* ignore */ }
-        created = createHostPeer(randomRoomCode(6));
-        peer = created.peer;
-        peerInstance = peer;
-        peer.on('open', (id) => finishHostReady(id));
-        peer.on('error', (e2) => {
-          set({
-            peerError: e2?.message || 'Не удалось создать комнату',
-            status: 'error',
-            mode: 'menu',
-          });
-          destroyPeer();
-        });
-        wireHostConnection(peer);
-        return;
-      }
-      set({
-        peerError: err?.message || 'Ошибка PeerJS',
-        status: 'error',
-        mode: 'menu',
-      });
+    } catch (e) {
+      console.warn('openRoom failed', e);
+      set({ peerError: 'Не удалось создать комнату', status: 'error', mode: 'menu' });
       destroyPeer();
+      return;
+    }
+    set({
+      roomCode: code,
+      shareLink: shareUrl(code),
+      mode: 'online',
+      status: 'waiting',
     });
-
-    wireHostConnection(peer);
   },
 
   joinOnlineRoom: (code) => {
@@ -196,59 +205,50 @@ export const useGameStore = create((set, get) => ({
       shareLink: shareUrl(room),
     });
 
-    const peer = createGuestPeer();
-    peerInstance = peer;
-
-    peer.on('open', () => {
-      const conn = peer.connect(room, { reliable: true });
-      connInstance = conn;
-
-      conn.on('open', () => {
-        set({
-          mode: 'online',
-          status: 'playing',
-          opponentConnected: true,
-        });
-        conn.send({ type: 'hello', role: 'guest' });
-      });
-
-      conn.on('data', (data) => handleRemoteMessage(data));
-
-      conn.on('close', () => {
-        const { status, mode: m } = get();
-        if (m === 'online' && status === 'playing') {
-          set({
-            peerError: 'Соперник отключился',
-            opponentConnected: false,
-            status: 'error',
-          });
-        } else {
-          set({ opponentConnected: false });
-        }
-      });
-
-      conn.on('error', () => {
-        set({
-          peerError: 'Не удалось подключиться к комнате. Проверьте код.',
-          status: 'error',
-          mode: 'menu',
-        });
-        destroyPeer();
-      });
-    });
-
-    peer.on('error', (err) => {
-      console.warn('peer guest error', err);
-      set({
-        peerError:
-          err?.type === 'peer-unavailable'
-            ? 'Комната не найдена. Проверьте код или создайте новую.'
-            : err?.message || 'Ошибка подключения',
-        status: 'error',
-        mode: 'menu',
-      });
+    const failJoin = (msg) => {
+      set({ peerError: msg, status: 'error', mode: 'menu' });
       destroyPeer();
-    });
+    };
+
+    try {
+      roomInstance = openRoom(room, {
+        onJoin: (peerId) => {
+          // Не знаем, кто хост — здороваемся с каждым; ответит только хост.
+          if (!remotePeerId) {
+            try { roomInstance.send({ type: 'hello', role: 'guest' }, peerId); } catch { /* ignore */ }
+          }
+        },
+        onLeave: (peerId) => {
+          if (peerId === remotePeerId) onOpponentLeft();
+        },
+        onMessage: (data, peerId) => {
+          if (!data || typeof data !== 'object') return;
+          if (!remotePeerId) {
+            if (data.type === 'sync') {
+              remotePeerId = peerId;
+              clearTimeout(joinTimer);
+              set({ mode: 'online', status: 'playing', opponentConnected: true });
+              handleRemoteMessage(data);
+            } else if (data.type === 'full') {
+              failJoin('В комнате уже есть два игрока.');
+            }
+            return;
+          }
+          if (peerId !== remotePeerId) return;
+          handleRemoteMessage(data);
+        },
+      });
+    } catch (e) {
+      console.warn('openRoom failed', e);
+      failJoin('Не удалось подключиться к комнате.');
+      return;
+    }
+
+    joinTimer = setTimeout(() => {
+      if (!remotePeerId) {
+        failJoin('Комната не найдена или хост не в сети. Проверьте код.');
+      }
+    }, JOIN_TIMEOUT_MS);
   },
 
   makeMove: (board, cell) => {
@@ -356,50 +356,6 @@ export const useGameStore = create((set, get) => ({
     get().backToMenu();
   },
 }));
-
-function wireHostConnection(peer) {
-  peer.on('connection', (conn) => {
-    if (connInstance && connInstance.open) {
-      try { conn.close(); } catch { /* ignore */ }
-      return;
-    }
-    connInstance = conn;
-
-    conn.on('open', () => {
-      const state = useGameStore.getState();
-      useGameStore.setState({
-        opponentConnected: true,
-        status: state.status === 'waiting' ? 'playing' : state.status,
-        mode: 'online',
-      });
-      conn.send({
-        type: 'sync',
-        game: useGameStore.getState().game,
-        hostMark: 'X',
-      });
-    });
-
-    conn.on('data', (data) => handleRemoteMessage(data));
-
-    conn.on('close', () => {
-      const { status, mode } = useGameStore.getState();
-      if (mode === 'online' && (status === 'playing' || status === 'waiting')) {
-        useGameStore.setState({
-          peerError: 'Соперник отключился',
-          opponentConnected: false,
-          status: status === 'playing' ? 'error' : 'waiting',
-        });
-      } else {
-        useGameStore.setState({ opponentConnected: false });
-      }
-      connInstance = null;
-    });
-
-    conn.on('error', (err) => {
-      console.warn('host conn error', err);
-    });
-  });
-}
 
 function handleRemoteMessage(data) {
   if (!data || typeof data !== 'object') return;

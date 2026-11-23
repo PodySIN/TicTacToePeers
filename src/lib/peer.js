@@ -1,18 +1,48 @@
 /**
- * PeerJS helpers.
- * Библиотека подключается с CDN в index.html (window.Peer).
- * Используется публичный брокер 0.peerjs.com — свой сервер не нужен.
- * Игровые данные идут напрямую между браузерами (WebRTC DataConnection).
+ * P2P-транспорт на Trystero (WebRTC без своего сервера).
+ * Сигналинг идёт через публичные Nostr-реле (несколько сразу — если одно лежит, работают другие).
+ * Игровые данные идут напрямую между браузерами.
+ *
+ * Если Nostr-реле недоступны в вашей сети, замените импорт на один из:
+ *   'trystero/torrent'  — WebTorrent-трекеры
+ *   'trystero/mqtt'     — публичные MQTT-брокеры
  */
+import { joinRoom } from 'trystero/nostr';
 
-function getPeerCtor() {
-  if (typeof window !== 'undefined' && window.Peer) return window.Peer;
-  throw new Error('PeerJS не загружен. Проверьте CDN в index.html');
-}
+const APP_ID = 'neon-ultimate-ttt-v1';
 
-const PEER_OPTS = {
-  debug: 0,
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turns:openrelay.metered.ca:443?transport=tcp',
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+  ],
 };
+
+/**
+ * Открыть комнату. handlers: { onJoin(peerId), onLeave(peerId), onMessage(data, peerId) }
+ * Возвращает { send(data, peerId?), leave() }.
+ */
+export function openRoom(code, handlers) {
+  const room = joinRoom({ appId: APP_ID, rtcConfig: RTC_CONFIG }, code);
+  const [sendMsg, getMsg] = room.makeAction('msg');
+  getMsg((data, peerId) => handlers.onMessage?.(data, peerId));
+  room.onPeerJoin((peerId) => handlers.onJoin?.(peerId));
+  room.onPeerLeave((peerId) => handlers.onLeave?.(peerId));
+  return {
+    send: (data, peerId) => sendMsg(data, peerId),
+    leave: () => room.leave(),
+  };
+}
 
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -22,20 +52,6 @@ export function randomRoomCode(len = 6) {
     s += ROOM_ALPHABET[Math.floor(Math.random() * ROOM_ALPHABET.length)];
   }
   return s;
-}
-
-/** Host: Peer id = код комнаты */
-export function createHostPeer(roomCode) {
-  const Peer = getPeerCtor();
-  const code = roomCode || randomRoomCode(6);
-  const peer = new Peer(code, PEER_OPTS);
-  return { peer, roomCode: code };
-}
-
-/** Guest: случайный id, потом peer.connect(roomCode) */
-export function createGuestPeer() {
-  const Peer = getPeerCtor();
-  return new Peer(PEER_OPTS);
 }
 
 export function shareUrl(roomCode) {
