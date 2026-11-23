@@ -7,7 +7,7 @@ import { parseRoomFromUrl } from '../lib/peer';
 const MODES = [
   { id: 'local', title: 'Двое на одном устройстве', desc: 'Ходите по очереди на одном экране', icon: '👥' },
   { id: 'bot', title: 'Против бота', desc: 'Три уровня сложности', icon: '🤖' },
-  { id: 'online', title: 'По сети (PeerJS)', desc: 'Код комнаты или ссылка — без сервера', icon: '🌐' },
+  { id: 'online', title: 'По сети', desc: 'Код комнаты или ссылка — до двух игроков', icon: '🌐' },
 ];
 
 export default function HomeScreen() {
@@ -87,6 +87,7 @@ export default function HomeScreen() {
     }
   };
 
+  const connecting = mode === 'connecting' && status === 'waiting';
   const waitingForOpponent = mode === 'online' && status === 'waiting' && roomCode;
 
   return (
@@ -140,7 +141,7 @@ export default function HomeScreen() {
           </div>
         )}
 
-        {selectedMode === 'online' && !waitingForOpponent && (
+        {selectedMode === 'online' && !waitingForOpponent && !connecting && (
           <div className="online-panel">
             <div className="difficulty-row" style={{ marginBottom: 12 }}>
               <button
@@ -172,8 +173,25 @@ export default function HomeScreen() {
               />
             )}
             <p className="online-hint">
-              Работает через PeerJS (P2P). Свой сервер не нужен — только браузер и ссылка/код.
+              Создайте комнату и отправьте другу код или ссылку, чтобы сыграть вместе.
             </p>
+          </div>
+        )}
+
+        {connecting && (
+          <div className="online-panel connection-panel" role="status" aria-live="polite">
+            <div className="connection-spinner" aria-hidden="true" />
+            <div className="connection-copy">
+              <strong>{selectedMode === 'online' && onlineAction === 'join' ? 'Подключаемся к комнате' : 'Создаём комнату'}</strong>
+              <span>Это займёт всего несколько секунд</span>
+            </div>
+            <button
+              type="button"
+              className="cancel-btn"
+              onClick={() => { playTone('click'); useGameStore.getState().leaveToMenu(); }}
+            >
+              Отменить
+            </button>
           </div>
         )}
 
@@ -204,15 +222,15 @@ export default function HomeScreen() {
         {selectedMode === 'bot' && savedBot && (
           <button
             type="button"
-            className="start-btn"
-            style={{ marginBottom: 12, background: 'transparent', border: '1px solid var(--cyan)' }}
+            className="start-btn resume-btn"
             onClick={handleResume}
           >
-            Продолжить сохранённую игру
+            <span className="resume-icon" aria-hidden="true">↗</span>
+            <span className="resume-copy"><strong>Продолжить партию</strong><small>Вернуться к сохранённой игре против бота</small></span>
           </button>
         )}
 
-        {!waitingForOpponent && (
+        {!waitingForOpponent && !connecting && (
           <button
             type="button"
             className="start-btn"
@@ -230,14 +248,13 @@ export default function HomeScreen() {
         {waitingForOpponent && (
           <button
             type="button"
-            className="start-btn"
-            style={{ marginTop: 8, background: 'transparent', border: '1px solid var(--stroke)' }}
+            className="start-btn cancel-room-btn"
             onClick={() => {
               playTone('click');
               useGameStore.getState().leaveToMenu();
             }}
           >
-            Отмена
+            <span aria-hidden="true">×</span> Отменить ожидание
           </button>
         )}
       </div>

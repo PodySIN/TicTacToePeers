@@ -67,7 +67,7 @@ export default function GameScreen() {
   return (
     <div className="game-screen">
       <div className="game-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div className="game-header-info">
           <span className={`status-pill ${isFinished(game) ? 'win' : game.current === 'X' ? 'x' : 'o'}`}>
             {turnLabel()}
           </span>
@@ -77,14 +77,14 @@ export default function GameScreen() {
             </span>
           )}
           {mode === 'online' && (
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-              {playerMark === 'X' ? 'Вы — ✕' : 'Вы — ○'}
-              {roomCode ? ` · ${roomCode}` : ''}
-              {opponentConnected ? ' · онлайн' : ' · нет связи'}
-            </span>
+            <div className="game-meta">
+              <span>{playerMark === 'X' ? 'Вы — ✕' : 'Вы — ○'}</span>
+              {roomCode && <button type="button" className="room-code-chip" title="Скопировать код комнаты" onClick={() => navigator.clipboard?.writeText(roomCode)}>{roomCode} · копировать</button>}
+              <span className={opponentConnected ? 'connection-state connected' : 'connection-state'}>{opponentConnected ? 'Соперник онлайн' : 'Нет связи'}</span>
+            </div>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className="game-header-actions">
           {mode === 'bot' && !isFinished(game) && (
             <button type="button" className="back-btn" onClick={surrender}>
               Сдаться
@@ -102,7 +102,7 @@ export default function GameScreen() {
         </p>
       )}
 
-      <div>
+      <div className="game-play-area">
         <GameBoard game={game} onMove={handleMove} interactive={status === 'playing' && isMyTurn} />
         <p className="hint">
           {game.nextBoard !== null && !isFinished(game)
@@ -119,7 +119,7 @@ export default function GameScreen() {
           actions={
             <>
               <button type="button" className="modal-btn primary" onClick={resetGame}>
-                {mode === 'online' ? 'Ещё раз' : 'Ещё раз'}
+                Ещё раз
               </button>
               <button type="button" className="modal-btn" onClick={goMenu}>
                 В меню
@@ -133,9 +133,7 @@ export default function GameScreen() {
               : 'Три больших поля в ряд.'}
           </p>
           {mode === 'online' && onlineRole === 'guest' && (
-            <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>
-              Реванш отправит запрос хосту.
-            </p>
+            <p className="rematch-note">Реванш отправит запрос хосту.</p>
           )}
         </Modal>
       )}
