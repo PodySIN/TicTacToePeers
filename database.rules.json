@@ -1,0 +1,19 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "rooms": {
+      "$room": {
+        ".validate": "$room.matches(/^[A-Z0-9]{4,8}$/)",
+        ".read": true,
+        ".write": true,
+        "toHost": {
+          "$msg": { ".validate": "newData.hasChildren(['from', 's']) && newData.child('s').isString() && newData.child('s').val().length < 20000" }
+        },
+        "toGuest": {
+          "$msg": { ".validate": "newData.hasChildren(['from', 's']) && newData.child('s').isString() && newData.child('s').val().length < 20000" }
+        }
+      }
+    }
+  }
+}
